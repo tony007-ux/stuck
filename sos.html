@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SOS Emergency Button</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+            background-color: #f5f5f5;
+        }
+        
+        .container {
+            text-align: center;
+        }
+        
+        h1 {
+            color: #333;
+            margin-bottom: 2rem;
+        }
+        
+        .sos-button {
+            width: 200px;
+            height: 200px;
+            border-radius: 50%;
+            background-color: #ff3b30;
+            color: white;
+            font-size: 48px;
+            font-weight: bold;
+            border: none;
+            cursor: pointer;
+            box-shadow: 0 8px 16px rgba(0, 0, 0, 0.2);
+            transition: all 0.3s ease;
+            outline: none;
+        }
+        
+        .sos-button:hover {
+            transform: scale(1.05);
+            box-shadow: 0 12px 24px rgba(0, 0, 0, 0.25);
+        }
+        
+        .sos-button:active {
+            transform: scale(0.95);
+            background-color: #d72d23;
+        }
+        
+        .status {
+            margin-top: 2rem;
+            padding: 1rem;
+            border-radius: 8px;
+            font-weight: bold;
+            display: none;
+        }
+        
+        .success {
+            background-color: #4cd964;
+            color: white;
+        }
+        
+        .processing {
+            background-color: #007aff;
+            color: white;
+        }
+        
+        .error {
+            background-color: #ff9500;
+            color: white;
+        }
+        
+        .admin-link {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            color: #999;
+            text-decoration: none;
+            font-size: 14px;
+        }
+        
+        .admin-link:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Emergency SOS</h1>
+        <button id="sosButton" class="sos-button">SOS</button>
+        <div id="status" class="status"></div>
+    </div>
+    
+    <a href="admin.html" class="admin-link">Admin Login</a>
+    
+    <script>
+        // Initialize storage when the page loads
+        document.addEventListener('DOMContentLoaded', function() {
+            // Create sosClicks array in localStorage if it doesn't exist
+            if (!localStorage.getItem('sosClicks')) {
+                localStorage.setItem('sosClicks', JSON.stringify([]));
+            }
+        });
+        
+        // SOS Button click handler
+        document.getElementById('sosButton').addEventListener('click', function() {
+            // Show processing message
+            updateStatus("Processing your emergency signal...", "processing");
+            
+            // Create basic SOS data
+            const timestamp = new Date().toISOString();
+            const sosData = {
+                timestamp: timestamp,
+                date: new Date(timestamp).toLocaleDateString(),
+                time: new Date(timestamp).toLocaleTimeString(),
+                userAgent: navigator.userAgent,
+                latitude: null,
+                longitude: null,
+                locationDetails: "Location unavailable"
+            };
+            
+            // Attempt to get location
+            tryGetLocation(sosData);
+        });
+        
+        // Function to attempt getting location
+        function tryGetLocation(sosData) {
+            // Check if geolocation is available
+            if (!navigator.geolocation) {
+                updateStatus("Location service not available", "error");
+                // Save data without location after a short delay
+                setTimeout(() => saveSOSData(sosData), 1500);
+                return;
+            }
+            
+            // Update status
+            updateStatus("Getting your location...", "processing");
+            
+            // Request location with timeout
+            navigator.geolocation.getCurrentPosition(
+                // Success callback
+                function(position) {
+                    // Save coordinates
+                    sosData.latitude = position.coords.latitude;
+                    sosData.longitude = position.coords.longitude;
+                    sosData.locationDetails = `${position.coords.latitude.toFixed(6)}, ${position.coords.longitude.toFixed(6)}`;
+                    
+                    // Try to get a readable address
+                    tryGetAddress(sosData);
+                },
+                // Error callback
+                function(error) {
+                    console.log("Geolocation error:", error.message);
+                    updateStatus("Could not determine your location", "error");
+                    
+                    // Save without location after a short delay
+                    setTimeout(() => saveSOSData(sosData), 1500);
+                },
+                // Options
+                { 
+                    timeout: 15000,          // 15 second timeout
+                    maximumAge: 60000,       // Accept cached position up to 1 minute
+                    enableHighAccuracy: true // Request high accuracy if available
+                }
+            );
+        }
+        
+        // Function to try getting address from coordinates
+        function tryGetAddress(sosData) {
+            // Use OpenStreetMap's Nominatim API for reverse geocoding
+            // Add timestamp to prevent caching
+            const url = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${sosData.latitude}&lon=${sosData.longitude}&zoom=18&addressdetails=1&accept-language=en&_=${Date.now()}`;
+            
+            fetch(url, {
+                headers: {
+                    'Accept': 'application/json',
+                    'User-Agent': 'SOSEmergencyApp/1.0'
+                }
+            })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error('Network response was not ok');
+                }
+                return response.json();
+            })
+            .then(data => {
+                if (data && data.display_name) {
+                    sosData.locationDetails = data.display_name;
+                }
+                // Save data with the address
+                saveSOSData(sosData);
+            })
+            .catch(error => {
+                console.log("Address lookup error:", error);
+                // Save with just coordinates
+                saveSOSData(sosData);
+            });
+        }
+        
+        // Function to save SOS data
+        function saveSOSData(sosData) {
+            try {
+                // Get current data
+                const sosClicks = JSON.parse(localStorage.getItem('sosClicks')) || [];
+                
+                // Add new data
+                sosClicks.push(sosData);
+                
+                // Save back to storage
+                localStorage.setItem('sosClicks', JSON.stringify(sosClicks));
+                
+                // Show success message
+                updateStatus("Emergency signal sent successfully!", "success");
+                
+                // Hide message after 5 seconds
+                setTimeout(() => {
+                    document.getElementById('status').style.display = "none";
+                }, 5000);
+                
+                console.log("SOS data saved:", sosData);
+            } catch (error) {
+                console.error("Error saving SOS data:", error);
+                updateStatus("Error saving emergency data", "error");
+            }
+        }
+        
+        // Function to update status message
+        function updateStatus(message, className) {
+            const status = document.getElementById('status');
+            status.textContent = message;
+            status.className = `status ${className}`;
+            status.style.display = "block";
+        }
+    </script>
+</body>
+</html>
